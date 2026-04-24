@@ -41,6 +41,7 @@ class PopulationSimulation:
 
     HISTORY_LIMIT = 240
     PEDIGREE_DEPTH = 5
+    SUBSTEP_YEARS = 5
     RELATEDNESS_BUCKETS = (
         "unrelated",
         "distant relatives",
@@ -56,6 +57,9 @@ class PopulationSimulation:
         self._random = random.Random()
         self.state = SimulationState()
         self.tick = 0
+        self._elapsed_years = 0
+        self._current_substep_years = 1
+        self._current_year_bp = scenario.start_year_bp
         self.individuals: dict[int, Individual] = {}
         self.groups: dict[int, Group] = {}
         self._region_lookup: dict[str, RegionDefinition] = {}
@@ -73,6 +77,8 @@ class PopulationSimulation:
         self._close_kin_matings_total = 0
         self._extreme_matings_total = 0
         self._peak_region_pressure_over_run = 0.0
+        self._finished = False
+        self._end_reason = ""
         self.reset(scenario)
 
     @property
@@ -86,6 +92,10 @@ class PopulationSimulation:
         dispersal_rate: float | None = None,
         mate_radius: float | None = None,
         group_isolation_strength: float | None = None,
+        simulation_mode: str | None = None,
+        start_year_bp: int | None = None,
+        end_year_bp: int | None = None,
+        years_per_tick: int | None = None,
     ) -> None:
         """Update runtime controls from the UI."""
 
@@ -106,8 +116,27 @@ class PopulationSimulation:
                 0.0,
                 1.0,
             )
+        if simulation_mode is not None:
+            updates["simulation_mode"] = (
+                "sandbox" if simulation_mode == "sandbox" else "historical"
+            )
+        if (
+            start_year_bp is not None
+            or end_year_bp is not None
+            or years_per_tick is not None
+        ):
+            normalized_start, normalized_end, normalized_step = self._normalized_time_window(
+                start_year_bp if start_year_bp is not None else self.controls.start_year_bp,
+                end_year_bp if end_year_bp is not None else self.controls.end_year_bp,
+                years_per_tick if years_per_tick is not None else self.controls.years_per_tick,
+            )
+            updates["start_year_bp"] = normalized_start
+            updates["end_year_bp"] = normalized_end
+            updates["years_per_tick"] = normalized_step
         if updates:
             self.controls = replace(self.controls, **updates)
+            self._update_current_year()
+            self._finished, self._end_reason = self._evaluate_stop_conditions()
             metrics = self.state.metrics
             if metrics is not None:
                 conditions = self._current_conditions()
@@ -141,6 +170,9 @@ class PopulationSimulation:
 
         self._random = random.Random(self._scenario.seed)
         self.tick = 0
+        self._elapsed_years = 0
+        self._current_substep_years = 1
+        self._current_year_bp = self.controls.start_year_bp
         self.individuals = {}
         self.groups = {}
         self._region_lookup = {
@@ -160,6 +192,8 @@ class PopulationSimulation:
         self._close_kin_matings_total = 0
         self._extreme_matings_total = 0
         self._peak_region_pressure_over_run = 0.0
+        self._finished = False
+        self._end_reason = ""
 
         regional_counts = self._allocate_initial_population()
         for region_id, count in regional_counts.items():
@@ -181,6 +215,7 @@ class PopulationSimulation:
                 group_sizes[group.identifier] += 1
 
         self._refresh_positions()
+        self._finished, self._end_reason = self._evaluate_stop_conditions()
         conditions = self._current_conditions()
         self._rebuild_state(
             conditions=conditions,
@@ -197,34 +232,76 @@ class PopulationSimulation:
         return self.state
 
     def step(self) -> SimulationState:
+        if self._finished:
+            return self.state
+
         self.tick += 1
+        births = 0
+        deaths = 0
+        migrants = 0
+        mating_count = 0
+        related_matings = 0
+        close_kin_matings = 0
+        extreme_matings = 0
+        relationship_counts = self._empty_distribution_counts()
+        flow_counts: dict[tuple[str, str], int] = defaultdict(int)
         conditions = self._current_conditions()
+        remaining_years = self.controls.years_per_tick
 
-        for person in self._alive_people():
-            person.age += 1
+        while remaining_years > 0:
+            self._current_substep_years = min(self.SUBSTEP_YEARS, remaining_years)
+            if self._historical_stop_enabled():
+                years_until_end = max(1, self._current_year_bp - self.controls.end_year_bp)
+                self._current_substep_years = min(
+                    self._current_substep_years,
+                    years_until_end,
+                )
+            self._elapsed_years += self._current_substep_years
+            self._update_current_year()
+            conditions = self._current_conditions()
 
-        deaths = self._apply_mortality(conditions)
-        migrants, flow_counts = self._apply_migration(conditions)
-        (
-            births,
-            mating_count,
-            related_matings,
-            close_kin_matings,
-            extreme_matings,
-            relationship_counts,
-        ) = self._apply_reproduction(conditions)
+            for person in self._alive_people():
+                person.age += self._current_substep_years
 
-        self._births_total += births
-        self._deaths_total += deaths
-        self._migrants_total += migrants
-        self._matings_total += mating_count
-        self._related_matings_total += related_matings
-        self._close_kin_matings_total += close_kin_matings
-        self._extreme_matings_total += extreme_matings
+            deaths_this_year = self._apply_mortality(conditions)
+            migrants_this_year, annual_flows = self._apply_migration(conditions)
+            (
+                births_this_year,
+                mating_count_this_year,
+                related_matings_this_year,
+                close_kin_matings_this_year,
+                extreme_matings_this_year,
+                relationship_counts_this_year,
+            ) = self._apply_reproduction(conditions)
 
-        self._split_oversized_groups()
-        self._remove_empty_groups()
-        self._refresh_positions()
+            births += births_this_year
+            deaths += deaths_this_year
+            migrants += migrants_this_year
+            mating_count += mating_count_this_year
+            related_matings += related_matings_this_year
+            close_kin_matings += close_kin_matings_this_year
+            extreme_matings += extreme_matings_this_year
+            for label, count in relationship_counts_this_year.items():
+                relationship_counts[label] += count
+            for pair, count in annual_flows.items():
+                flow_counts[pair] += count
+
+            self._births_total += births_this_year
+            self._deaths_total += deaths_this_year
+            self._migrants_total += migrants_this_year
+            self._matings_total += mating_count_this_year
+            self._related_matings_total += related_matings_this_year
+            self._close_kin_matings_total += close_kin_matings_this_year
+            self._extreme_matings_total += extreme_matings_this_year
+
+            self._split_oversized_groups()
+            self._remove_empty_groups()
+            self._refresh_positions()
+            self._finished, self._end_reason = self._evaluate_stop_conditions()
+            remaining_years -= self._current_substep_years
+            if self._finished:
+                break
+
         self._rebuild_state(
             conditions=conditions,
             births=births,
@@ -240,12 +317,95 @@ class PopulationSimulation:
         return self.state
 
     def _default_controls(self, scenario: ScenarioPreset) -> SimulationControls:
+        start_year_bp, end_year_bp, years_per_tick = self._normalized_time_window(
+            scenario.start_year_bp,
+            scenario.end_year_bp,
+            scenario.years_per_tick,
+        )
         return SimulationControls(
             kin_avoidance_strength=scenario.kin_avoidance,
             dispersal_rate=scenario.migration_rate,
             mate_radius=scenario.mate_search_radius,
             group_isolation_strength=scenario.group_isolation_strength,
+            simulation_mode=scenario.default_mode,
+            start_year_bp=start_year_bp,
+            end_year_bp=end_year_bp,
+            years_per_tick=years_per_tick,
         )
+
+    @property
+    def is_finished(self) -> bool:
+        return self._finished
+
+    @property
+    def end_reason(self) -> str:
+        return self._end_reason
+
+    @property
+    def current_year_bp(self) -> int:
+        return self._current_year_bp
+
+    def _normalized_time_window(
+        self,
+        start_year_bp: int,
+        end_year_bp: int,
+        years_per_tick: int,
+    ) -> tuple[int, int, int]:
+        start = max(0, int(start_year_bp))
+        end = max(0, int(end_year_bp))
+        if start < end:
+            start, end = end, start
+        return start, end, max(1, int(years_per_tick))
+
+    def _update_current_year(self) -> None:
+        self._current_year_bp = self.controls.start_year_bp - self._elapsed_years
+
+    def _historical_stop_enabled(self) -> bool:
+        return self.controls.simulation_mode == "historical"
+
+    def _mode_label(self) -> str:
+        return (
+            "Historical scenario mode"
+            if self.controls.simulation_mode == "historical"
+            else "Sandbox mode"
+        )
+
+    def _auto_stop_status(self) -> str:
+        if self._finished:
+            return f"Stopped automatically: {self._end_reason}"
+        if self._historical_stop_enabled():
+            return f"Auto-stop at {self._format_year_bp(self.controls.end_year_bp)}"
+        return "Sandbox mode: historical stop disabled"
+
+    def _evaluate_stop_conditions(self) -> tuple[bool, str]:
+        population = len(self._alive_people())
+        if population <= 0:
+            return True, "Population went extinct"
+        if not self._has_reproductive_adults():
+            return True, "No reproductive adults remain"
+        if self._historical_stop_enabled() and self._current_year_bp <= self.controls.end_year_bp:
+            return True, "Historical end year reached"
+        return False, ""
+
+    def _has_reproductive_adults(self) -> bool:
+        females = any(
+            person.alive
+            and person.sex == "F"
+            and self._scenario.adult_age <= person.age <= self._scenario.menopause_age
+            for person in self.individuals.values()
+        )
+        males = any(
+            person.alive
+            and person.sex == "M"
+            and self._scenario.adult_age <= person.age <= 60
+            for person in self.individuals.values()
+        )
+        return females and males
+
+    def _format_year_bp(self, year_bp: int) -> str:
+        if year_bp >= 0:
+            return f"{year_bp:,} BP"
+        return f"{abs(year_bp):,} years after present"
 
     def _allocate_initial_population(self) -> dict[str, int]:
         total_weight = sum(self._scenario.initial_region_weights.values()) or 1.0
@@ -285,8 +445,12 @@ class PopulationSimulation:
             group_id=group.identifier,
             genome=self._founder_genome(self._region_lookup[region_id]),
             birth_tick=0,
+            birth_year_bp=self._current_year_bp + age,
             inbreeding_coefficient=0.0,
-            last_birth_tick=-self._random.randint(0, self._scenario.birth_interval),
+            last_birth_year_bp=self._current_year_bp + self._random.randint(
+                0,
+                self._scenario.birth_interval,
+            ),
         )
 
     def _sample_founder_age(self) -> int:
@@ -346,6 +510,9 @@ class PopulationSimulation:
             death_probability *= 1.0 + max(0.0, region_pressure - 1.00) * 1.10
             death_probability *= 1.0 + max(0.0, group_pressure - 1.0) * 0.20
             death_probability *= 1.0 + shock_level * 0.18
+            death_probability = self._annual_probability_to_step_probability(
+                death_probability
+            )
 
             if person.age > self._scenario.max_age:
                 death_probability = 1.0
@@ -373,6 +540,14 @@ class PopulationSimulation:
         if age <= 69:
             return 0.090
         return 0.180
+
+    def _annual_probability_to_step_probability(self, annual_probability: float) -> float:
+        bounded_probability = self._clamp(annual_probability, 0.0, 0.995)
+        years = max(1, self._current_substep_years)
+        return 1.0 - (1.0 - bounded_probability) ** years
+
+    def _years_since(self, prior_year_bp: int) -> int:
+        return abs(prior_year_bp - self._current_year_bp)
 
     def _inbreeding_mortality_multiplier(self, person: Individual) -> float:
         coefficient = person.inbreeding_coefficient
@@ -416,6 +591,10 @@ class PopulationSimulation:
 
             move_probability = self.controls.dispersal_rate
             move_probability *= float(conditions["migration"])
+            move_probability *= self._region_migration_modifier(
+                person.region_id,
+                conditions,
+            )
             move_probability *= max(
                 0.18,
                 1.0 - self.controls.group_isolation_strength * 0.45,
@@ -423,6 +602,9 @@ class PopulationSimulation:
             move_probability *= 0.65 + max(0.0, current_pressure - 0.70) * 1.35
             move_probability *= 1.0 + max(0.0, local_group_pressure - 1.0) * 0.35
             move_probability *= 1.0 + shock_push * 0.90
+            move_probability = self._annual_probability_to_step_probability(
+                move_probability
+            )
 
             if self._random.random() >= min(0.75, move_probability):
                 continue
@@ -474,9 +656,16 @@ class PopulationSimulation:
         search_depth = 1
         if current_pressure > 0.95 or current_shock > 0.18:
             search_depth = 2
-        if self._random.random() < self._effective_long_distance_rate() * float(
-            conditions["migration"]
-        ):
+        long_distance_probability = self._effective_long_distance_rate()
+        long_distance_probability *= float(conditions["migration"])
+        long_distance_probability *= self._region_migration_modifier(
+            person.region_id,
+            conditions,
+        )
+        long_distance_probability = self._annual_probability_to_step_probability(
+            long_distance_probability
+        )
+        if self._random.random() < long_distance_probability:
             search_depth = 3
 
         candidate_groups = []
@@ -566,7 +755,7 @@ class PopulationSimulation:
             for person in people
             if person.sex == "F"
             and self._scenario.adult_age <= person.age <= self._scenario.menopause_age
-            and (self.tick - person.last_birth_tick) >= self._scenario.birth_interval
+            and self._years_since(person.last_birth_year_bp) >= self._scenario.birth_interval
         ]
         self._random.shuffle(eligible_females)
 
@@ -591,6 +780,7 @@ class PopulationSimulation:
             fertility *= self._fertility_age_modifier(female.age)
             fertility *= max(0.15, 1.16 - region_pressure * 0.45)
             fertility *= max(0.35, 1.06 - max(0.0, group_pressure - 1.0) * 0.20)
+            fertility = self._annual_probability_to_step_probability(fertility)
 
             if self._random.random() >= min(0.65, fertility):
                 continue
@@ -818,9 +1008,10 @@ class PopulationSimulation:
             group_id=group.identifier,
             genome=genome,
             birth_tick=self.tick,
+            birth_year_bp=self._current_year_bp,
             inbreeding_coefficient=relationship.offspring_inbreeding_coefficient,
         )
-        mother.last_birth_tick = self.tick
+        mother.last_birth_year_bp = self._current_year_bp
         return child
 
     def _relationship_summary(
@@ -1042,6 +1233,18 @@ class PopulationSimulation:
             sum(person.age for person in people) / len(people) if people else 0.0
         )
         adults = sum(1 for person in people if person.age >= self._scenario.adult_age)
+        reproductive_females = sum(
+            1
+            for person in people
+            if person.sex == "F"
+            and self._scenario.adult_age <= person.age <= self._scenario.menopause_age
+        )
+        reproductive_males = sum(
+            1
+            for person in people
+            if person.sex == "M"
+            and self._scenario.adult_age <= person.age <= 60
+        )
         mean_inbreeding = (
             sum(person.inbreeding_coefficient for person in people) / len(people)
             if people
@@ -1129,8 +1332,17 @@ class PopulationSimulation:
             scenario_name=self._scenario.name,
             scenario_category=self._scenario.category_label,
             tick=self.tick,
+            current_year_bp=self._current_year_bp,
+            start_year_bp=self.controls.start_year_bp,
+            end_year_bp=self.controls.end_year_bp,
+            years_per_tick=self.controls.years_per_tick,
+            mode_label=self._mode_label(),
+            auto_stop_status=self._auto_stop_status(),
+            ended_reason=self._end_reason,
             population=len(people),
             adults=adults,
+            reproductive_females=reproductive_females,
+            reproductive_males=reproductive_males,
             groups=len(group_members),
             mean_group_size=mean_group_size,
             births_last_step=births,
@@ -1154,6 +1366,7 @@ class PopulationSimulation:
             self._history.append(
                 MetricSample(
                     tick=self.tick,
+                    year_bp=self._current_year_bp,
                     population=metrics.population,
                     carrying_capacity=metrics.carrying_capacity,
                     births=births,
@@ -1178,6 +1391,14 @@ class PopulationSimulation:
         run_summary = RunSummary(
             initial_population=self._scenario.initial_population,
             total_ticks=self.tick,
+            current_year_bp=self._current_year_bp,
+            start_year_bp=self.controls.start_year_bp,
+            end_year_bp=self.controls.end_year_bp,
+            years_per_tick=self.controls.years_per_tick,
+            years_elapsed=self._elapsed_years,
+            mode_label=self._mode_label(),
+            auto_stop_status=self._auto_stop_status(),
+            ended_reason=self._end_reason,
             births_total=self._births_total,
             deaths_total=self._deaths_total,
             migrants_total=self._migrants_total,
@@ -1198,6 +1419,8 @@ class PopulationSimulation:
             history=list(self._history),
             controls=replace(self.controls),
             run_summary=run_summary,
+            is_finished=self._finished,
+            end_reason=self._end_reason,
         )
 
     def _distribution_shares(
@@ -1229,15 +1452,25 @@ class PopulationSimulation:
 
     def _event_history_entries(self) -> list[EventHistoryEntry]:
         entries = []
-        for event in self._scenario.events:
-            if event.start_tick > self.tick:
+        for event in self._scenario.event_timeline:
+            if event.end_year_bp > self.controls.start_year_bp:
                 continue
+            if event.start_year_bp < self.controls.end_year_bp:
+                continue
+            if self._current_year_bp > event.start_year_bp:
+                status = "Not yet reached"
+            elif event.end_year_bp <= self._current_year_bp <= event.start_year_bp:
+                status = "Active at end of run"
+            else:
+                status = "Reached during run"
             entries.append(
                 EventHistoryEntry(
-                    label=event.label,
+                    name=event.name,
                     description=event.description,
-                    start_tick=event.start_tick,
-                    end_tick=min(self.tick, event.end_tick),
+                    start_year_bp=event.start_year_bp,
+                    end_year_bp=event.end_year_bp,
+                    affected_regions=event.affected_regions,
+                    status=status,
                 )
             )
         return entries
@@ -1250,37 +1483,39 @@ class PopulationSimulation:
         region_capacity_factors: dict[str, float] = defaultdict(lambda: 1.0)
         region_mortality_factors: dict[str, float] = defaultdict(lambda: 1.0)
         region_fertility_factors: dict[str, float] = defaultdict(lambda: 1.0)
+        region_migration_factors: dict[str, float] = defaultdict(lambda: 1.0)
         region_migration_push: dict[str, float] = defaultdict(float)
         region_event_labels: dict[str, list[str]] = defaultdict(list)
         active_labels = []
         active_descriptions = []
 
-        for event in self._scenario.events:
-            if event.start_tick <= self.tick <= event.end_tick:
-                active_labels.append(event.label)
+        for event in self._scenario.event_timeline:
+            if event.start_year_bp >= self._current_year_bp >= event.end_year_bp:
+                active_labels.append(event.name)
                 active_descriptions.append(event.description)
-                mortality *= event.mortality_multiplier
-                fertility *= event.fertility_multiplier
-                migration *= event.migration_multiplier
-                capacity *= event.capacity_multiplier
-
-                for region_id, factor in event.region_capacity_multipliers.items():
-                    region_capacity_factors[region_id] *= factor
-                for region_id, factor in event.region_mortality_multipliers.items():
-                    region_mortality_factors[region_id] *= factor
-                for region_id, factor in event.region_fertility_multipliers.items():
-                    region_fertility_factors[region_id] *= factor
-                for region_id, push in event.region_migration_push.items():
-                    region_migration_push[region_id] += push
-
-                for region_id in event.region_capacity_multipliers:
-                    region_event_labels[region_id].append(event.label)
-                for region_id in event.region_mortality_multipliers:
-                    region_event_labels[region_id].append(event.label)
-                for region_id in event.region_fertility_multipliers:
-                    region_event_labels[region_id].append(event.label)
-                for region_id in event.region_migration_push:
-                    region_event_labels[region_id].append(event.label)
+                affected_regions = (
+                    event.affected_regions
+                    if event.affected_regions
+                    else tuple(region.identifier for region in self._scenario.regions)
+                )
+                if not event.affected_regions:
+                    mortality *= event.mortality_multiplier
+                    fertility *= event.fertility_multiplier
+                    migration *= event.migration_modifier
+                    capacity *= event.carrying_capacity_modifier
+                    for region_id in affected_regions:
+                        region_event_labels[region_id].append(event.name)
+                else:
+                    for region_id in affected_regions:
+                        region_capacity_factors[region_id] *= event.carrying_capacity_modifier
+                        region_mortality_factors[region_id] *= event.mortality_multiplier
+                        region_fertility_factors[region_id] *= event.fertility_multiplier
+                        region_migration_factors[region_id] *= event.migration_modifier
+                        region_migration_push[region_id] += max(
+                            0.0,
+                            event.migration_modifier - 1.0,
+                        )
+                        region_event_labels[region_id].append(event.name)
 
         region_shock_levels: dict[str, float] = {}
         for region in self._scenario.regions:
@@ -1288,11 +1523,13 @@ class PopulationSimulation:
             capacity_factor = capacity * region_capacity_factors[region_id]
             mortality_factor = mortality * region_mortality_factors[region_id]
             fertility_factor = fertility * region_fertility_factors[region_id]
+            migration_factor = migration * region_migration_factors[region_id]
             shock_level = max(
                 0.0,
                 (1.0 - capacity_factor) * 1.05,
                 (mortality_factor - 1.0) * 0.80,
                 (1.0 - fertility_factor) * 0.70,
+                max(0.0, migration_factor - 1.0) * 0.90,
                 region_migration_push[region_id] * 0.90,
             )
             region_shock_levels[region_id] = min(1.40, shock_level)
@@ -1305,6 +1542,7 @@ class PopulationSimulation:
             "region_capacity_factors": dict(region_capacity_factors),
             "region_mortality_factors": dict(region_mortality_factors),
             "region_fertility_factors": dict(region_fertility_factors),
+            "region_migration_factors": dict(region_migration_factors),
             "region_migration_push": dict(region_migration_push),
             "region_shock_levels": region_shock_levels,
             "region_event_labels": {
@@ -1354,6 +1592,13 @@ class PopulationSimulation:
         conditions: dict[str, object],
     ) -> float:
         return dict(conditions["region_migration_push"]).get(region_id, 0.0)
+
+    def _region_migration_modifier(
+        self,
+        region_id: str,
+        conditions: dict[str, object],
+    ) -> float:
+        return dict(conditions["region_migration_factors"]).get(region_id, 1.0)
 
     def _observed_heterozygosity(self, people: list[Individual]) -> float:
         if not people:

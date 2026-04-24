@@ -5,6 +5,7 @@ from typing import Literal
 
 Sex = Literal["F", "M"]
 Genome = tuple[tuple[int, int], ...]
+SimulationMode = Literal["historical", "sandbox"]
 
 
 @dataclass
@@ -22,9 +23,10 @@ class Individual:
     group_id: int
     genome: Genome
     birth_tick: int
+    birth_year_bp: int
     inbreeding_coefficient: float = 0.0
     alive: bool = True
-    last_birth_tick: int = -999
+    last_birth_year_bp: int = 999_999
 
 
 @dataclass
@@ -56,21 +58,18 @@ class RegionDefinition:
 
 
 @dataclass(frozen=True)
-class EnvironmentalEvent:
-    """Time-bounded modifier used for stress windows and local shocks."""
+class HistoricalEvent:
+    """Historically inspired but explicitly simplified event window."""
 
-    label: str
+    name: str
     description: str
-    start_tick: int
-    end_tick: int
-    mortality_multiplier: float = 1.0
+    start_year_bp: int
+    end_year_bp: int
+    affected_regions: tuple[str, ...] = ()
     fertility_multiplier: float = 1.0
-    migration_multiplier: float = 1.0
-    capacity_multiplier: float = 1.0
-    region_capacity_multipliers: dict[str, float] = field(default_factory=dict)
-    region_mortality_multipliers: dict[str, float] = field(default_factory=dict)
-    region_fertility_multipliers: dict[str, float] = field(default_factory=dict)
-    region_migration_push: dict[str, float] = field(default_factory=dict)
+    mortality_multiplier: float = 1.0
+    migration_modifier: float = 1.0
+    carrying_capacity_modifier: float = 1.0
     map_color: str = "#d76f2c"
 
 
@@ -82,7 +81,12 @@ class ScenarioPreset:
     category_label: str
     description: str
     disclaimer: str
+    scenario_notes: tuple[str, ...]
     seed: int
+    start_year_bp: int
+    end_year_bp: int
+    years_per_tick: int
+    default_mode: SimulationMode
     initial_population: int
     genome_loci: int
     group_target_size: int
@@ -103,17 +107,21 @@ class ScenarioPreset:
     group_fission_threshold: int
     regions: tuple[RegionDefinition, ...]
     initial_region_weights: dict[str, float]
-    events: tuple[EnvironmentalEvent, ...] = ()
+    event_timeline: tuple[HistoricalEvent, ...] = ()
 
 
 @dataclass
 class SimulationControls:
-    """User-adjustable experimental controls applied on top of a preset."""
+    """User-adjustable controls applied on top of a preset."""
 
     kin_avoidance_strength: float
     dispersal_rate: float
     mate_radius: float
     group_isolation_strength: float
+    simulation_mode: SimulationMode
+    start_year_bp: int
+    end_year_bp: int
+    years_per_tick: int
 
 
 @dataclass
@@ -175,6 +183,7 @@ class MetricSample:
     """One compact history sample used by the chart layer."""
 
     tick: int
+    year_bp: int
     population: int
     carrying_capacity: int
     births: int
@@ -197,8 +206,17 @@ class SimulationMetrics:
     scenario_name: str
     scenario_category: str
     tick: int
+    current_year_bp: int
+    start_year_bp: int
+    end_year_bp: int
+    years_per_tick: int
+    mode_label: str
+    auto_stop_status: str
+    ended_reason: str
     population: int
     adults: int
+    reproductive_females: int
+    reproductive_males: int
     groups: int
     mean_group_size: float
     births_last_step: int
@@ -220,12 +238,14 @@ class SimulationMetrics:
 
 @dataclass
 class EventHistoryEntry:
-    """One event interval included in the run summary."""
+    """One historical event interval included in the run summary."""
 
-    label: str
+    name: str
     description: str
-    start_tick: int
-    end_tick: int
+    start_year_bp: int
+    end_year_bp: int
+    affected_regions: tuple[str, ...]
+    status: str
 
 
 @dataclass
@@ -234,6 +254,14 @@ class RunSummary:
 
     initial_population: int
     total_ticks: int
+    current_year_bp: int
+    start_year_bp: int
+    end_year_bp: int
+    years_per_tick: int
+    years_elapsed: int
+    mode_label: str
+    auto_stop_status: str
+    ended_reason: str
     births_total: int
     deaths_total: int
     migrants_total: int
@@ -257,3 +285,5 @@ class SimulationState:
     history: list[MetricSample] = field(default_factory=list)
     controls: SimulationControls | None = None
     run_summary: RunSummary | None = None
+    is_finished: bool = False
+    end_reason: str = ""

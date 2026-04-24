@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from models import EnvironmentalEvent, RegionDefinition, ScenarioPreset
+from models import HistoricalEvent, RegionDefinition, ScenarioPreset
 
 
 def _regions(
@@ -78,7 +78,7 @@ def _regions(
 
 
 def load_presets() -> list[ScenarioPreset]:
-    """Return scientifically inspired but explicitly simplified scenarios."""
+    """Return historically inspired but explicitly simplified scenarios."""
 
     return [
         ScenarioPreset(
@@ -89,7 +89,15 @@ def load_presets() -> list[ScenarioPreset]:
                 "lower-capacity corridor toward Eurasia as local density rises."
             ),
             disclaimer="Not a reconstruction of real prehistory; only an illustrative baseline.",
+            scenario_notes=(
+                "Dates are scenario assumptions chosen to create a finite run with plausible-seeming structure.",
+                "The dated windows are historically inspired and should not be read as a literal migration chronology.",
+            ),
             seed=11,
+            start_year_bp=120_000,
+            end_year_bp=35_000,
+            years_per_tick=250,
+            default_mode="historical",
             initial_population=140,
             genome_loci=24,
             group_target_size=16,
@@ -110,15 +118,18 @@ def load_presets() -> list[ScenarioPreset]:
             group_fission_threshold=28,
             regions=_regions(0.28, 0.46, 0.66),
             initial_region_weights={"africa_core": 0.84, "corridor": 0.10, "eurasia": 0.06},
-            events=(
-                EnvironmentalEvent(
-                    label="Corridor aridity pulse",
-                    description="A modest corridor stress window that lowers carrying capacity and encourages movement.",
-                    start_tick=32,
-                    end_tick=44,
-                    migration_multiplier=1.10,
-                    region_capacity_multipliers={"corridor": 0.82},
-                    region_migration_push={"corridor": 0.15},
+            event_timeline=(
+                HistoricalEvent(
+                    name="Corridor aridity pulse",
+                    description=(
+                        "Historically inspired dry interval used here as a scenario assumption "
+                        "to lower corridor capacity and encourage movement."
+                    ),
+                    start_year_bp=74_000,
+                    end_year_bp=69_000,
+                    affected_regions=("corridor",),
+                    migration_modifier=1.12,
+                    carrying_capacity_modifier=0.82,
                     map_color="#c97d3e",
                 ),
             ),
@@ -134,7 +145,15 @@ def load_presets() -> list[ScenarioPreset]:
                 "The deep bottleneck framing is controversial and is shown here only as a "
                 "simplified hypothesis."
             ),
+            scenario_notes=(
+                "The long low-capacity window is a thought experiment rather than a consensus demographic reconstruction.",
+                "Historical dates are used only to anchor the scenario in a finite BP timeline.",
+            ),
             seed=23,
+            start_year_bp=150_000,
+            end_year_bp=45_000,
+            years_per_tick=300,
+            default_mode="historical",
             initial_population=48,
             genome_loci=24,
             group_target_size=12,
@@ -155,18 +174,31 @@ def load_presets() -> list[ScenarioPreset]:
             group_fission_threshold=24,
             regions=_regions(0.30, 0.45, 0.65),
             initial_region_weights={"africa_core": 0.88, "corridor": 0.10, "eurasia": 0.02},
-            events=(
-                EnvironmentalEvent(
-                    label="Extended low-capacity window",
-                    description="Long period of depressed resources and slower demographic recovery.",
-                    start_tick=0,
-                    end_tick=30,
-                    mortality_multiplier=1.12,
+            event_timeline=(
+                HistoricalEvent(
+                    name="Extended low-capacity window",
+                    description=(
+                        "Long depressed-resource phase used to model a severe bottleneck hypothesis."
+                    ),
+                    start_year_bp=135_000,
+                    end_year_bp=105_000,
+                    affected_regions=(),
                     fertility_multiplier=0.92,
-                    capacity_multiplier=0.78,
-                    region_capacity_multipliers={"corridor": 0.70},
-                    region_migration_push={"corridor": 0.10},
+                    mortality_multiplier=1.12,
+                    carrying_capacity_modifier=0.78,
                     map_color="#bc6c25",
+                ),
+                HistoricalEvent(
+                    name="Corridor contraction",
+                    description=(
+                        "Additional corridor stress to keep movement narrow during the bottleneck interval."
+                    ),
+                    start_year_bp=120_000,
+                    end_year_bp=96_000,
+                    affected_regions=("corridor",),
+                    migration_modifier=1.08,
+                    carrying_capacity_modifier=0.72,
+                    map_color="#c08552",
                 ),
             ),
         ),
@@ -181,7 +213,15 @@ def load_presets() -> list[ScenarioPreset]:
                 "This does not claim that any specific eruption produced a human near-extinction; "
                 "it is an explicit stress hypothesis."
             ),
+            scenario_notes=(
+                "The dated shock window is historically inspired rather than asserted as a precise causal mechanism.",
+                "Recovery timing is stylized so the model can compare acute stress with slower demographic rebound.",
+            ),
             seed=37,
+            start_year_bp=95_000,
+            end_year_bp=40_000,
+            years_per_tick=250,
+            default_mode="historical",
             initial_population=135,
             genome_loci=24,
             group_target_size=16,
@@ -202,44 +242,32 @@ def load_presets() -> list[ScenarioPreset]:
             group_fission_threshold=28,
             regions=_regions(0.28, 0.46, 0.66),
             initial_region_weights={"africa_core": 0.80, "corridor": 0.12, "eurasia": 0.08},
-            events=(
-                EnvironmentalEvent(
-                    label="Shock onset",
-                    description="Short severe shock with major corridor and Eurasia stress.",
-                    start_tick=18,
-                    end_tick=25,
-                    mortality_multiplier=1.42,
+            event_timeline=(
+                HistoricalEvent(
+                    name="Acute environmental shock",
+                    description=(
+                        "Short severe stress window with broad mortality, fertility, and capacity effects."
+                    ),
+                    start_year_bp=76_000,
+                    end_year_bp=72_000,
+                    affected_regions=(),
                     fertility_multiplier=0.68,
-                    migration_multiplier=1.45,
-                    capacity_multiplier=0.76,
-                    region_capacity_multipliers={
-                        "africa_core": 0.82,
-                        "corridor": 0.56,
-                        "eurasia": 0.52,
-                    },
-                    region_mortality_multipliers={
-                        "corridor": 1.18,
-                        "eurasia": 1.16,
-                    },
-                    region_fertility_multipliers={
-                        "corridor": 0.82,
-                        "eurasia": 0.85,
-                    },
-                    region_migration_push={
-                        "corridor": 0.35,
-                        "eurasia": 0.22,
-                    },
+                    mortality_multiplier=1.40,
+                    migration_modifier=1.35,
+                    carrying_capacity_modifier=0.74,
                     map_color="#cf5c36",
                 ),
-                EnvironmentalEvent(
-                    label="Slow recovery",
-                    description="Capacity partially recovers, but fertility and corridor quality stay depressed for a while.",
-                    start_tick=26,
-                    end_tick=40,
+                HistoricalEvent(
+                    name="Recovery lag",
+                    description=(
+                        "Stylized lingering recovery period in which corridor and Eurasia remain partly degraded."
+                    ),
+                    start_year_bp=72_000,
+                    end_year_bp=64_000,
+                    affected_regions=("corridor", "eurasia"),
                     fertility_multiplier=0.88,
-                    migration_multiplier=1.12,
-                    region_capacity_multipliers={"corridor": 0.78, "eurasia": 0.84},
-                    region_migration_push={"corridor": 0.10},
+                    migration_modifier=1.10,
+                    carrying_capacity_modifier=0.82,
                     map_color="#e09f3e",
                 ),
             ),
@@ -255,50 +283,70 @@ def load_presets() -> list[ScenarioPreset]:
                 "This is an illustrative structured-population setup, not a claim that one "
                 "specific ancestral graph is correct."
             ),
+            scenario_notes=(
+                "The time span is deliberately broad so regional structure can persist over many simulated generations.",
+                "Event windows here are mild and mostly serve to reinforce structure, not to narrate a specific history.",
+            ),
             seed=41,
+            start_year_bp=130_000,
+            end_year_bp=45_000,
+            years_per_tick=300,
+            default_mode="historical",
             initial_population=165,
             genome_loci=24,
-            group_target_size=15,
+            group_target_size=17,
             adult_age=16,
             menopause_age=40,
             max_age=72,
             birth_interval=3,
             annual_birth_probability=0.24,
-            migration_rate=0.030,
+            migration_rate=0.034,
             long_distance_migration_rate=0.010,
-            exogamy_rate=0.16,
-            kin_avoidance=0.93,
+            exogamy_rate=0.18,
+            kin_avoidance=0.92,
             mortality_multiplier=1.0,
             fertility_multiplier=1.0,
-            mate_search_radius=0.12,
-            mate_genetic_diversity_weight=0.07,
-            group_isolation_strength=0.62,
-            group_fission_threshold=24,
-            regions=_regions(0.18, 0.50, 0.82),
-            initial_region_weights={"africa_core": 0.55, "corridor": 0.20, "eurasia": 0.25},
-            events=(
-                EnvironmentalEvent(
-                    label="Corridor contraction",
-                    description="Temporarily narrows the effective corridor and reduces exchange across regions.",
-                    start_tick=45,
-                    end_tick=60,
-                    migration_multiplier=0.92,
-                    region_capacity_multipliers={"corridor": 0.72},
-                    region_migration_push={"corridor": 0.12},
-                    map_color="#b56576",
+            mate_search_radius=0.13,
+            mate_genetic_diversity_weight=0.10,
+            group_isolation_strength=0.56,
+            group_fission_threshold=28,
+            regions=_regions(0.24, 0.48, 0.72),
+            initial_region_weights={"africa_core": 0.70, "corridor": 0.15, "eurasia": 0.15},
+            event_timeline=(
+                HistoricalEvent(
+                    name="Persistent corridor friction",
+                    description=(
+                        "Mild corridor constraints used to keep ancestry structured for longer."
+                    ),
+                    start_year_bp=110_000,
+                    end_year_bp=70_000,
+                    affected_regions=("corridor",),
+                    migration_modifier=1.05,
+                    carrying_capacity_modifier=0.88,
+                    map_color="#c69752",
                 ),
             ),
         ),
         ScenarioPreset(
             name="Low exogamy stress test",
-            category_label="Exploratory stress test",
+            category_label="Stress test",
             description=(
-                "Suppresses inter-group mate exchange and reduces kin avoidance to probe how "
-                "quickly related-pair detections rise in small local groups."
+                "Reduces inter-group mate exchange and weakens kin avoidance to explore how "
+                "rapidly local relatedness can accumulate under isolation."
             ),
-            disclaimer="This is an exploration of model behavior, not a historical claim.",
+            disclaimer=(
+                "This is an exploratory stress test, not a historical claim about any real population."
+            ),
+            scenario_notes=(
+                "The dated window only provides a finite historical frame for the stress test.",
+                "The scientific purpose here is comparative behavior under low exogamy, not historical inference.",
+            ),
             seed=53,
-            initial_population=120,
+            start_year_bp=90_000,
+            end_year_bp=35_000,
+            years_per_tick=250,
+            default_mode="historical",
+            initial_population=105,
             genome_loci=24,
             group_target_size=14,
             adult_age=16,
@@ -306,29 +354,54 @@ def load_presets() -> list[ScenarioPreset]:
             max_age=72,
             birth_interval=3,
             annual_birth_probability=0.23,
-            migration_rate=0.016,
-            long_distance_migration_rate=0.004,
-            exogamy_rate=0.05,
-            kin_avoidance=0.72,
-            mortality_multiplier=1.0,
-            fertility_multiplier=1.0,
+            migration_rate=0.020,
+            long_distance_migration_rate=0.006,
+            exogamy_rate=0.08,
+            kin_avoidance=0.36,
+            mortality_multiplier=1.02,
+            fertility_multiplier=0.98,
             mate_search_radius=0.10,
-            mate_genetic_diversity_weight=0.03,
-            group_isolation_strength=0.78,
+            mate_genetic_diversity_weight=0.07,
+            group_isolation_strength=0.72,
             group_fission_threshold=22,
-            regions=_regions(0.28, 0.46, 0.66),
-            initial_region_weights={"africa_core": 0.82, "corridor": 0.12, "eurasia": 0.06},
+            regions=_regions(0.28, 0.47, 0.66),
+            initial_region_weights={"africa_core": 0.86, "corridor": 0.09, "eurasia": 0.05},
+            event_timeline=(
+                HistoricalEvent(
+                    name="Low-connectivity interval",
+                    description=(
+                        "Scenario assumption that amplifies isolation by making the corridor harder to use."
+                    ),
+                    start_year_bp=72_000,
+                    end_year_bp=54_000,
+                    affected_regions=("corridor",),
+                    migration_modifier=1.12,
+                    carrying_capacity_modifier=0.80,
+                    map_color="#b66a41",
+                ),
+            ),
         ),
         ScenarioPreset(
             name="Inbreeding stress test",
-            category_label="Experimental stress test",
+            category_label="Stress test",
             description=(
-                "Very small starting population with weak dispersal, low exogamy, strong group isolation, "
-                "and no kin avoidance, intended to explore when inbreeding becomes hard to avoid."
+                "Very small founder population with low dispersal, low exogamy, strong isolation, "
+                "and no kin avoidance."
             ),
-            disclaimer="This is an experimental sandbox scenario designed to expose inbreeding pressure.",
+            disclaimer=(
+                "Designed to study when inbreeding becomes hard to avoid in a tiny isolated population; "
+                "not a historical reconstruction."
+            ),
+            scenario_notes=(
+                "This scenario is intentionally extreme so the model reaches unavoidable inbreeding regimes quickly.",
+                "Its time window is only a finite frame for comparison and should not be read as a dated historical claim.",
+            ),
             seed=67,
-            initial_population=72,
+            start_year_bp=85_000,
+            end_year_bp=60_000,
+            years_per_tick=150,
+            default_mode="historical",
+            initial_population=68,
             genome_loci=24,
             group_target_size=10,
             adult_age=16,
@@ -336,28 +409,30 @@ def load_presets() -> list[ScenarioPreset]:
             max_age=72,
             birth_interval=3,
             annual_birth_probability=0.22,
-            migration_rate=0.006,
+            migration_rate=0.010,
             long_distance_migration_rate=0.002,
-            exogamy_rate=0.03,
+            exogamy_rate=0.02,
             kin_avoidance=0.0,
-            mortality_multiplier=1.02,
-            fertility_multiplier=0.98,
+            mortality_multiplier=1.04,
+            fertility_multiplier=0.96,
             mate_search_radius=0.08,
-            mate_genetic_diversity_weight=0.02,
-            group_isolation_strength=0.90,
-            group_fission_threshold=16,
-            regions=_regions(0.30, 0.47, 0.64),
-            initial_region_weights={"africa_core": 0.92, "corridor": 0.08, "eurasia": 0.0},
-            events=(
-                EnvironmentalEvent(
-                    label="Persistent isolation",
-                    description="Low exchange keeps small local groups reproductively constrained for an extended period.",
-                    start_tick=0,
-                    end_tick=120,
-                    migration_multiplier=0.82,
-                    region_capacity_multipliers={"corridor": 0.88},
-                    region_migration_push={"corridor": 0.05},
-                    map_color="#9b2226",
+            mate_genetic_diversity_weight=0.04,
+            group_isolation_strength=0.85,
+            group_fission_threshold=18,
+            regions=_regions(0.29, 0.45, 0.64),
+            initial_region_weights={"africa_core": 0.94, "corridor": 0.05, "eurasia": 0.01},
+            event_timeline=(
+                HistoricalEvent(
+                    name="Persistent local scarcity",
+                    description=(
+                        "Moderate long-running local scarcity that keeps the small population clustered."
+                    ),
+                    start_year_bp=79_000,
+                    end_year_bp=66_000,
+                    affected_regions=("africa_core",),
+                    migration_modifier=1.06,
+                    carrying_capacity_modifier=0.84,
+                    map_color="#9f5d36",
                 ),
             ),
         ),

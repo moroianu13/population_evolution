@@ -40,11 +40,18 @@ This project stays intentionally cautious:
   - each region has its own capacity
   - fertility, mortality, and migration pressure respond to local overcrowding
 - Environmental shocks:
-  - scenarios can apply temporary regional or global stress windows
-  - shocks can alter mortality, fertility, migration push, and carrying capacity
+  - scenarios can apply historically inspired regional or global stress windows
+  - shocks are tied to BP date ranges rather than arbitrary tick numbers
+  - shocks can alter mortality, fertility, migration, and carrying capacity
 - Group structure:
   - people live in small residential bands
   - oversized groups split
+- Finite historical runs:
+  - each preset includes a start year, end year, and years-per-tick step size
+  - each tick advances explicit simulated time in years before present (`BP`)
+  - historical mode stops automatically at the configured end year
+  - runs also stop if the population goes extinct or if no reproductive adults remain
+  - sandbox mode keeps the historical clock running without the end-year stop
 - Pedigree tracking:
   - ancestry is tracked through recorded parents for 5 generations
   - the model estimates a pedigree-based relatedness coefficient between potential partners
@@ -86,6 +93,14 @@ The GUI exposes runtime sliders for:
 
 These controls are applied on top of the selected preset so you can explore when inbreeding becomes difficult to avoid.
 
+The GUI also exposes historical run controls for:
+
+- simulation mode (`Historical scenario mode` or `Sandbox mode`)
+- `start_year_bp`
+- `end_year_bp`
+- `years_per_tick`
+- live display of the current simulated year and auto-stop status
+
 The GUI also exposes report-export controls for:
 
 - automatic export when the simulation is manually paused
@@ -113,6 +128,13 @@ The GUI also exposes report-export controls for:
   - Very small founder population with low dispersal, low exogamy, high isolation, and no kin avoidance.
   - Designed specifically to study when inbreeding becomes hard to avoid.
 
+Each preset also includes:
+
+- a finite BP time span
+- a years-per-tick step size
+- a historically inspired event timeline
+- scenario notes that frame the timing as model assumptions rather than certain facts
+
 ## Visualization Notes
 
 - The map is schematic rather than geographic.
@@ -121,12 +143,14 @@ The GUI also exposes report-export controls for:
 - Arrows show recent inter-region migration during the latest step.
 - Pair lines show recent mating events when enabled.
 - The chart history is capped so the GUI stays responsive.
+- Active events are shown according to the current simulated year.
 
 ## Limitations
 
-- Time advances in simplified yearly steps.
+- Time advances in simplified fixed steps defined by `years_per_tick`.
 - The genome uses a small set of binary diploid loci.
 - The relatedness and `F` calculations are lightweight pedigree approximations rather than a full genetic simulation.
+- Event dates are scenario assumptions or historically inspired windows, not asserted facts.
 - No language, culture, subsistence, archaeology, or explicit disease ecology is modeled.
 - Kinship is only as complete as the recorded parent links inside the simulation.
 - This should be treated as an educational sandbox, not a historical inference engine.
@@ -143,7 +167,7 @@ Tkinter is part of the Python standard library on most desktop Python installati
 
 Charts use Matplotlib when available. If Matplotlib is missing, the simulator still runs with the map and metrics panels, but without embedded charts.
 
-PDF reports are also generated through Matplotlib's PDF backend, so PDF export requires Matplotlib.
+PDF reports are generated with ReportLab Platypus and use Matplotlib-rendered chart/map images, so PDF export requires both `reportlab` and `matplotlib`.
 
 ## PDF Export
 
@@ -155,8 +179,8 @@ PDF reports are also generated through Matplotlib's PDF backend, so PDF export r
 Each report includes:
 
 - title, timestamp, selected scenario, and scenario disclaimer
-- important input parameters and cumulative run summary
-- population by region and event history
+- important input parameters, scenario time span, years per tick, and cumulative run summary
+- population by region, historical event timeline, auto-stop status, and run end reason
 - charts for population, births/deaths/migration, heterozygosity, regional pressure, and mean `F`
 - a current map snapshot with migration flows and recent mating overlays
 - an auto-generated interpretation section

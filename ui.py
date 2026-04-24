@@ -53,7 +53,13 @@ class PopulationApp(ttk.Frame):
         self.metric_vars = {
             "scenario": tk.StringVar(),
             "category": tk.StringVar(),
+            "mode": tk.StringVar(),
             "tick": tk.StringVar(),
+            "current_year": tk.StringVar(),
+            "start_year": tk.StringVar(),
+            "end_year": tk.StringVar(),
+            "years_per_tick": tk.StringVar(),
+            "auto_stop": tk.StringVar(),
             "population": tk.StringVar(),
             "adults": tk.StringVar(),
             "groups": tk.StringVar(),
@@ -76,6 +82,10 @@ class PopulationApp(ttk.Frame):
         self.dispersal_var = tk.DoubleVar()
         self.mate_radius_var = tk.DoubleVar()
         self.isolation_var = tk.DoubleVar()
+        self.mode_var = tk.StringVar()
+        self.start_year_var = tk.IntVar()
+        self.end_year_var = tk.IntVar()
+        self.years_per_tick_var = tk.IntVar()
         self.show_pair_lines_var = tk.BooleanVar(value=True)
         self.auto_export_on_pause_var = tk.BooleanVar(value=False)
         self.auto_export_on_limit_var = tk.BooleanVar(value=False)
@@ -177,7 +187,7 @@ class PopulationApp(ttk.Frame):
         left_pane = ttk.Panedwindow(main_pane, orient="vertical")
         right_panel = ttk.Frame(main_pane, padding=(12, 0, 0, 0))
         right_panel.columnconfigure(0, weight=1)
-        right_panel.rowconfigure(4, weight=1)
+        right_panel.rowconfigure(5, weight=1)
 
         map_frame = ttk.LabelFrame(left_pane, text="Regional Map", padding=10)
         map_frame.columnconfigure(0, weight=1)
@@ -206,7 +216,13 @@ class PopulationApp(ttk.Frame):
         fields = [
             ("Scenario", "scenario"),
             ("Category", "category"),
+            ("Mode", "mode"),
             ("Tick", "tick"),
+            ("Current year", "current_year"),
+            ("Start year", "start_year"),
+            ("End year", "end_year"),
+            ("Years / tick", "years_per_tick"),
+            ("Auto-stop", "auto_stop"),
             ("Population", "population"),
             ("Adults", "adults"),
             ("Groups", "groups"),
@@ -238,12 +254,68 @@ class PopulationApp(ttk.Frame):
                 pady=2,
             )
 
+        time_frame = ttk.LabelFrame(right_panel, text="Time & Mode", padding=12)
+        time_frame.grid(row=1, column=0, sticky="ew", pady=(12, 0))
+        time_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(time_frame, text="Simulation mode").grid(row=0, column=0, sticky="w", pady=2)
+        mode_box = ttk.Combobox(
+            time_frame,
+            textvariable=self.mode_var,
+            values=["Historical scenario mode", "Sandbox mode"],
+            state="readonly",
+            width=22,
+        )
+        mode_box.grid(row=0, column=1, sticky="ew", padx=8, pady=2)
+        mode_box.bind("<<ComboboxSelected>>", self._on_control_changed)
+
+        ttk.Label(time_frame, text="Start year (BP)").grid(row=1, column=0, sticky="w", pady=2)
+        ttk.Spinbox(
+            time_frame,
+            from_=0,
+            to=300000,
+            increment=1000,
+            textvariable=self.start_year_var,
+            width=10,
+            command=self._on_control_changed,
+        ).grid(row=1, column=1, sticky="w", padx=8, pady=2)
+
+        ttk.Label(time_frame, text="End year (BP)").grid(row=2, column=0, sticky="w", pady=2)
+        ttk.Spinbox(
+            time_frame,
+            from_=0,
+            to=300000,
+            increment=1000,
+            textvariable=self.end_year_var,
+            width=10,
+            command=self._on_control_changed,
+        ).grid(row=2, column=1, sticky="w", padx=8, pady=2)
+
+        ttk.Label(time_frame, text="Years per tick").grid(row=3, column=0, sticky="w", pady=2)
+        ttk.Spinbox(
+            time_frame,
+            from_=1,
+            to=5000,
+            increment=50,
+            textvariable=self.years_per_tick_var,
+            width=10,
+            command=self._on_control_changed,
+        ).grid(row=3, column=1, sticky="w", padx=8, pady=2)
+
+        ttk.Label(
+            time_frame,
+            text="Historical mode stops at the configured end year. Sandbox mode keeps running past it.",
+            style="Secondary.TLabel",
+            wraplength=320,
+            justify="left",
+        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(8, 0))
+
         experimental_frame = ttk.LabelFrame(
             right_panel,
             text="Experimental Controls",
             padding=12,
         )
-        experimental_frame.grid(row=1, column=0, sticky="ew", pady=(12, 0))
+        experimental_frame.grid(row=2, column=0, sticky="ew", pady=(12, 0))
         experimental_frame.columnconfigure(1, weight=1)
 
         self._add_control_row(
@@ -291,7 +363,7 @@ class PopulationApp(ttk.Frame):
         ).grid(row=4, column=0, columnspan=3, sticky="w", pady=(8, 0))
 
         report_frame = ttk.LabelFrame(right_panel, text="Report Export", padding=12)
-        report_frame.grid(row=2, column=0, sticky="ew", pady=(12, 0))
+        report_frame.grid(row=3, column=0, sticky="ew", pady=(12, 0))
         report_frame.columnconfigure(1, weight=1)
 
         ttk.Checkbutton(
@@ -328,7 +400,7 @@ class PopulationApp(ttk.Frame):
             ).grid(row=3, column=0, columnspan=3, sticky="w", pady=(8, 0))
 
         region_frame = ttk.LabelFrame(right_panel, text="Regional Pressure", padding=8)
-        region_frame.grid(row=3, column=0, sticky="ew", pady=(12, 0))
+        region_frame.grid(row=4, column=0, sticky="ew", pady=(12, 0))
         region_frame.columnconfigure(0, weight=1)
         region_frame.rowconfigure(0, weight=1)
 
@@ -351,7 +423,7 @@ class PopulationApp(ttk.Frame):
         self.region_tree.grid(row=0, column=0, sticky="ew")
 
         notes_frame = ttk.LabelFrame(right_panel, text="Kinship & Scenario Notes", padding=12)
-        notes_frame.grid(row=4, column=0, sticky="nsew", pady=(12, 0))
+        notes_frame.grid(row=5, column=0, sticky="nsew", pady=(12, 0))
         notes_frame.columnconfigure(0, weight=1)
         notes_frame.rowconfigure(0, weight=1)
         ttk.Label(
@@ -407,6 +479,9 @@ class PopulationApp(ttk.Frame):
         self.dispersal_var.trace_add("write", lambda *_args: self._on_control_changed())
         self.mate_radius_var.trace_add("write", lambda *_args: self._on_control_changed())
         self.isolation_var.trace_add("write", lambda *_args: self._on_control_changed())
+        self.start_year_var.trace_add("write", lambda *_args: self._on_control_changed())
+        self.end_year_var.trace_add("write", lambda *_args: self._on_control_changed())
+        self.years_per_tick_var.trace_add("write", lambda *_args: self._on_control_changed())
 
     def _build_charts(self, parent: ttk.LabelFrame) -> None:
         if not MATPLOTLIB_AVAILABLE:
@@ -474,6 +549,10 @@ class PopulationApp(ttk.Frame):
         self.dispersal_var.set(controls.dispersal_rate)
         self.mate_radius_var.set(controls.mate_radius)
         self.isolation_var.set(controls.group_isolation_strength)
+        self.mode_var.set(self._mode_value_for_ui(controls.simulation_mode))
+        self.start_year_var.set(controls.start_year_bp)
+        self.end_year_var.set(controls.end_year_bp)
+        self.years_per_tick_var.set(controls.years_per_tick)
         self._refresh_control_text()
         self._suspend_control_update = False
 
@@ -483,20 +562,46 @@ class PopulationApp(ttk.Frame):
         self.control_text_vars["mate_radius"].set(f"{self.mate_radius_var.get():.2f}")
         self.control_text_vars["isolation"].set(f"{self.isolation_var.get():.2f}")
 
-    def _on_control_changed(self) -> None:
+    def _on_control_changed(self, _event=None) -> None:
         self._refresh_control_text()
         if self._suspend_control_update:
+            return
+        try:
+            start_year_bp = int(self.start_year_var.get())
+            end_year_bp = int(self.end_year_var.get())
+            years_per_tick = int(self.years_per_tick_var.get())
+        except (tk.TclError, ValueError):
+            self.status_var.set("Invalid time controls")
             return
         self.simulation.set_controls(
             kin_avoidance_strength=self.kin_avoidance_var.get(),
             dispersal_rate=self.dispersal_var.get(),
             mate_radius=self.mate_radius_var.get(),
             group_isolation_strength=self.isolation_var.get(),
+            simulation_mode=self._mode_value_for_simulation(self.mode_var.get()),
+            start_year_bp=start_year_bp,
+            end_year_bp=end_year_bp,
+            years_per_tick=years_per_tick,
         )
+        self._load_controls_from_simulation()
         self.status_var.set("Controls updated")
         self._refresh_view()
 
+    def _mode_value_for_ui(self, mode: str) -> str:
+        return "Sandbox mode" if mode == "sandbox" else "Historical scenario mode"
+
+    def _mode_value_for_simulation(self, value: str) -> str:
+        return "sandbox" if value == "Sandbox mode" else "historical"
+
+    def _format_year_bp(self, year_bp: int) -> str:
+        if year_bp >= 0:
+            return f"{year_bp:,} BP"
+        return f"{abs(year_bp):,} years after present"
+
     def play(self) -> None:
+        if self.simulation.is_finished:
+            self.status_var.set(self.simulation.end_reason or "Run already ended")
+            return
         if self._running:
             return
         self._running = True
@@ -528,10 +633,15 @@ class PopulationApp(ttk.Frame):
             self._run_report_export(status_prefix="Tick limit reached; exported")
 
     def step_once(self) -> None:
+        if self.simulation.is_finished:
+            self.status_var.set(self.simulation.end_reason or "Run already ended")
+            return
         if not self._running:
             self.status_var.set("Stepped")
         self.simulation.step()
         self._refresh_view()
+        if self._apply_simulation_stop():
+            return
         self._apply_tick_limit()
 
     def reset(self) -> None:
@@ -551,6 +661,8 @@ class PopulationApp(ttk.Frame):
     def _run_loop(self) -> None:
         self.simulation.step()
         self._refresh_view()
+        if self._apply_simulation_stop():
+            return
         if not self._apply_tick_limit():
             self._schedule_next_step()
 
@@ -561,7 +673,13 @@ class PopulationApp(ttk.Frame):
 
         self.metric_vars["scenario"].set(metrics.scenario_name)
         self.metric_vars["category"].set(metrics.scenario_category)
+        self.metric_vars["mode"].set(metrics.mode_label)
         self.metric_vars["tick"].set(str(metrics.tick))
+        self.metric_vars["current_year"].set(self._format_year_bp(metrics.current_year_bp))
+        self.metric_vars["start_year"].set(self._format_year_bp(metrics.start_year_bp))
+        self.metric_vars["end_year"].set(self._format_year_bp(metrics.end_year_bp))
+        self.metric_vars["years_per_tick"].set(f"{metrics.years_per_tick:,}")
+        self.metric_vars["auto_stop"].set(metrics.auto_stop_status)
         self.metric_vars["population"].set(str(metrics.population))
         self.metric_vars["adults"].set(str(metrics.adults))
         self.metric_vars["groups"].set(str(metrics.groups))
@@ -620,6 +738,14 @@ class PopulationApp(ttk.Frame):
         lines = [
             f"{self.current_preset.category_label}: {self.current_preset.description}",
             self.current_preset.disclaimer,
+            "",
+            "Scenario notes:",
+            *[f"- {note}" for note in self.current_preset.scenario_notes],
+            "",
+            "Run timing:",
+            f"{metrics.mode_label}. Current year {self._format_year_bp(metrics.current_year_bp)} with {metrics.years_per_tick:,} years per tick.",
+            f"Configured span: {self._format_year_bp(metrics.start_year_bp)} to {self._format_year_bp(metrics.end_year_bp)}.",
+            f"Auto-stop status: {metrics.auto_stop_status}.",
             f"Pedigree depth tracked: {self.simulation.PEDIGREE_DEPTH} generations.",
             "Offspring F is approximated as half the pedigree-based coefficient of relatedness between parents.",
             "",
@@ -631,6 +757,10 @@ class PopulationApp(ttk.Frame):
         ]
         if active_region_notes:
             lines.extend(["", "Active regional stress:", *active_region_notes])
+        elif metrics.active_event != "None":
+            lines.extend(["", f"Active event window: {metrics.active_event}."])
+        if metrics.ended_reason:
+            lines.extend(["", f"Run ended because: {metrics.ended_reason}."])
         return "\n".join(lines)
 
     def _update_region_table(self, regions: list[RegionSnapshot]) -> None:
@@ -999,6 +1129,13 @@ class PopulationApp(ttk.Frame):
 
     def _update_speed_text(self) -> None:
         self.speed_text_var.set(f"{self.speed_var.get():.1f}x")
+
+    def _apply_simulation_stop(self) -> bool:
+        if not self.simulation.is_finished:
+            return False
+        self.pause(reason="simulation_end", allow_auto_export=False)
+        self.status_var.set(self.simulation.end_reason or "Simulation ended")
+        return True
 
     def _apply_tick_limit(self) -> bool:
         try:
